@@ -1,3 +1,5 @@
+pub mod chat;
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -218,6 +220,22 @@ pub struct FleetStatusSnapshot {
     pub proxy_version: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub games: Vec<GameFleetStatus>,
+}
+
+impl FleetStatusSnapshot {
+    /// Players on every lobby and game server, as last reported by their heartbeats.
+    pub fn online_players(&self) -> u32 {
+        self.lobbies
+            .iter()
+            .chain(&self.servers)
+            .map(|server| server.player_count)
+            .sum()
+    }
+
+    /// Players on game servers only.
+    pub fn players_in_game(&self) -> u32 {
+        self.servers.iter().map(|server| server.player_count).sum()
+    }
 }
 
 pub const PROXY_VERSION_HEADER: &str = "x-hypolia-version";
@@ -645,5 +663,52 @@ mod tests {
         let json = r#"{"queue_len":0,"min_players":1,"max_players_per_server":16,"min_replicas":1,"max_replicas":5,"standby_servers":1,"ready_servers":0,"in_game_servers":0,"starting_servers":0,"queued_players":[],"servers":[]}"#;
         let snapshot: FleetStatusSnapshot = serde_json::from_str(json).unwrap();
         assert!(snapshot.games.is_empty());
+    }
+
+    fn server(id: &str, kind: ServerKind, players: u32) -> ServerSummary {
+        ServerSummary {
+            server_id: id.to_owned(),
+            pod_name: None,
+            address: "10.0.0.1:25565".to_owned(),
+            phase: ServerPhase::Waiting,
+            player_count: players,
+            max_players: 100,
+            ready: true,
+            heartbeat_age_secs: 1,
+            age_secs: 10,
+            version: None,
+            outdated: false,
+            kind,
+            draining: false,
+        }
+    }
+
+    #[test]
+    fn online_players_counts_every_lobby_and_game_server() {
+        let snapshot = FleetStatusSnapshot {
+            queue_len: 0,
+            min_players: 1,
+            max_players_per_server: 16,
+            min_replicas: 0,
+            max_replicas: 4,
+            standby_servers: 0,
+            ready_servers: 1,
+            in_game_servers: 1,
+            starting_servers: 0,
+            queued_players: Vec::new(),
+            servers: vec![
+                server("sw-1", ServerKind::SheepWars, 3),
+                server("tw-1", ServerKind::TowerWars, 2),
+            ],
+            orchestrator_version: None,
+            lobbies: vec![
+                server("lobby-a", ServerKind::Lobby, 1),
+                server("lobby-b", ServerKind::Lobby, 1),
+            ],
+            proxy_version: None,
+            games: Vec::new(),
+        };
+        assert_eq!(snapshot.online_players(), 7);
+        assert_eq!(snapshot.players_in_game(), 5);
     }
 }
