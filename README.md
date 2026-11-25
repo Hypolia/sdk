@@ -6,6 +6,7 @@ Contrats partagés par tous les services Hypolia.
 |---|---|
 | `hypolia-protocol` | Contrat JSON entre lobby, jeux et orchestrateur (file, heartbeat, phases, retours au hub) |
 | `hypolia-progression` | Domaine de la progression joueur (niveaux, XP, coins, stats) |
+| `hypolia-maps` | Maps du bucket `hypolia-maps` : nom validé, bundle `world.zip` + `arena.json`, port `MapStore` et adapter S3 |
 
 ## Utilisation
 
