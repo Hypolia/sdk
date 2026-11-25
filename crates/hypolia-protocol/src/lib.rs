@@ -95,6 +95,10 @@ pub struct HeartbeatResponse {
     /// Nombre de joueurs à attendre avant de lancer la partie (TowerWars).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_players: Option<u32>,
+    /// Joueurs de la partie regroupés par voie (TowerWars) : une liste par voie,
+    /// 1 joueur en Solo, 2 en Duo. Vide quand l'orchestrateur ne l'impose pas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub teams: Vec<Vec<Uuid>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -504,6 +508,32 @@ pub struct AdminCoinGrant {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_heartbeat_response_without_teams_keeps_its_old_shape() {
+        let response = HeartbeatResponse {
+            expected_players: Some(2),
+            teams: Vec::new(),
+        };
+        let json = serde_json::to_string(&response).expect("json");
+        assert_eq!(json, r#"{"expected_players":2}"#);
+        let parsed: HeartbeatResponse = serde_json::from_str(&json).expect("parse");
+        assert_eq!(parsed, response);
+    }
+
+    #[test]
+    fn teams_round_trip_in_a_heartbeat_response() {
+        let response = HeartbeatResponse {
+            expected_players: Some(4),
+            teams: vec![
+                vec![Uuid::from_u128(1), Uuid::from_u128(2)],
+                vec![Uuid::from_u128(3), Uuid::from_u128(4)],
+            ],
+        };
+        let json = serde_json::to_string(&response).expect("json");
+        let parsed: HeartbeatResponse = serde_json::from_str(&json).expect("parse");
+        assert_eq!(parsed, response);
+    }
 
     #[test]
     fn unknown_cosmetic_from_newer_version_deserializes_as_unknown() {
