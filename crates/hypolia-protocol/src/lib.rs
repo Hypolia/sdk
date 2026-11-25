@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod social;
 
 use std::collections::BTreeMap;
 
@@ -102,6 +103,7 @@ pub enum QueueJoinStatus {
     Queued,
     AlreadyQueued,
     Transferring,
+    NotPartyLeader,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
