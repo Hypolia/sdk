@@ -9,7 +9,16 @@ license = "MIT"
 rust-version = "1.90"
 
 [workspace.dependencies]
+hypolia-maps = { path = "crates/hypolia-maps" }
 hypolia-protocol = { path = "crates/hypolia-protocol" }
+
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
+url = "2.5"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 proptest = "1"
 serde = { version = "1", features = ["derive"] }
