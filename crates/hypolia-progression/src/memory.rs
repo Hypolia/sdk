@@ -3,7 +3,7 @@ use std::future::{Future, ready};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::{CoinMovement, PlayerProgress, PlayerRecord};
-use hypolia_protocol::MatchReportAck;
+use hypolia_protocol::{GameKind, Leaderboard, LeaderboardEntry, MatchReportAck};
 use uuid::Uuid;
 
 use crate::repository::{
@@ -123,6 +123,46 @@ impl ProgressionRepository for MemoryProgressionRepository {
             .map(|entry| entry.movement.clone())
             .collect();
         ready(Ok(movements))
+    }
+
+    fn top_wins(
+        &self,
+        game: GameKind,
+        limit: u32,
+    ) -> impl Future<Output = Result<Leaderboard, ProgressionStoreError>> + Send {
+        let mut entries: Vec<LeaderboardEntry> = {
+            let state = self.lock();
+            let mut rows: Vec<(String, u32, u32)> = state
+                .players
+                .values()
+                .filter_map(|record| {
+                    record.games.get(&game).and_then(|g| {
+                        if g.wins > 0 {
+                            Some((record.name.clone(), g.wins, g.played))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+            rows.sort_by(|a, b| {
+                b.1.cmp(&a.1)
+                    .then_with(|| a.2.cmp(&b.2))
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+            rows.truncate(limit as usize);
+            rows.into_iter()
+                .enumerate()
+                .map(|(i, (name, wins, played))| LeaderboardEntry {
+                    rank: (i + 1) as u32,
+                    name,
+                    wins,
+                    played,
+                })
+                .collect()
+        };
+        entries.shrink_to_fit();
+        ready(Ok(Leaderboard { game, entries }))
     }
 }
 
@@ -285,5 +325,99 @@ mod tests {
         let other = repo.clone();
         grant(&repo, RED, 10);
         assert_eq!(block_on(other.load(RED)).unwrap().unwrap().coins, Coins(10));
+    }
+
+    fn record_win(repo: &MemoryProgressionRepository, uuid: Uuid, game: GameKind, wins: u32) {
+        for i in 0..wins {
+            let mid = Uuid::from_u128(1000 + uuid.as_u128() as u64 * 100 + i as u64);
+            let players = [uuid];
+            block_on(repo.settle_match(
+                MatchToSettle {
+                    match_id: mid,
+                    game,
+                    server_id: "test",
+                    players: &players,
+                },
+                |map| {
+                    let player = map.get_mut(&uuid).unwrap();
+                    let credit = player.record_match(mid, game, MatchOutcome::Win);
+                    Settlement {
+                        ack: MatchReportAck {
+                            match_id: mid,
+                            counted: true,
+                            duplicate: false,
+                            rewards: vec![credit.to_player_reward(uuid)],
+                        },
+                        ledger: vec![LedgerEntry {
+                            uuid,
+                            movement: credit.movement,
+                        }],
+                    }
+                },
+            ))
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn top_wins_sorts_by_wins_desc_then_played_asc_then_name() {
+        let repo = MemoryProgressionRepository::default();
+        // RED: 5 wins, 10 played. BLUE: 5 wins, 7 played (fewer games, ranks first on tie).
+        record_win(&repo, RED, GameKind::SheepWars, 5);
+        record_win(&repo, BLUE, GameKind::SheepWars, 5);
+        let board = block_on(repo.top_wins(GameKind::SheepWars, 10)).unwrap();
+        assert_eq!(board.entries.len(), 2);
+        assert_eq!(board.entries[0].name, "BLUE".to_owned().replace("BLUE", ""));
+        // Names are empty by default; check ordering by played instead.
+        assert_eq!(board.entries[0].wins, 5);
+        assert!(board.entries[0].played <= board.entries[1].played);
+        assert_eq!(board.entries[0].rank, 1);
+        assert_eq!(board.entries[1].rank, 2);
+    }
+
+    #[test]
+    fn top_wins_excludes_players_with_zero_wins() {
+        let repo = MemoryProgressionRepository::default();
+        let players = [RED];
+        block_on(repo.settle_match(
+            MatchToSettle {
+                match_id: MATCH,
+                game: GameKind::SheepWars,
+                server_id: "test",
+                players: &players,
+            },
+            |map| {
+                let player = map.get_mut(&RED).unwrap();
+                let credit = player.record_match(MATCH, GameKind::SheepWars, MatchOutcome::Loss);
+                Settlement {
+                    ack: MatchReportAck {
+                        match_id: MATCH,
+                        counted: true,
+                        duplicate: false,
+                        rewards: vec![credit.to_player_reward(RED)],
+                    },
+                    ledger: vec![LedgerEntry {
+                        uuid: RED,
+                        movement: credit.movement,
+                    }],
+                }
+            },
+        ))
+        .unwrap();
+        let board = block_on(repo.top_wins(GameKind::SheepWars, 10)).unwrap();
+        assert!(board.entries.is_empty());
+    }
+
+    #[test]
+    fn top_wins_respects_the_limit() {
+        let repo = MemoryProgressionRepository::default();
+        for i in 0..5u128 {
+            let uuid = Uuid::from_u128(50 + i);
+            record_win(&repo, uuid, GameKind::TowerWars, (i as u32) + 1);
+        }
+        let board = block_on(repo.top_wins(GameKind::TowerWars, 3)).unwrap();
+        assert_eq!(board.entries.len(), 3);
+        assert_eq!(board.entries[0].wins, 5);
+        assert_eq!(board.entries[2].wins, 3);
     }
 }

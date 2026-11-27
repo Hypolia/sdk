@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 
 use crate::{CoinMovement, PlayerProgress, PlayerRecord};
-use hypolia_protocol::{GameKind, MatchReportAck};
+use hypolia_protocol::{GameKind, Leaderboard, MatchReportAck};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -63,4 +63,10 @@ pub trait ProgressionRepository: Clone + Send + Sync + 'static {
         &self,
         uuid: Uuid,
     ) -> impl Future<Output = Result<Vec<CoinMovement>, ProgressionStoreError>> + Send;
+
+    fn top_wins(
+        &self,
+        game: GameKind,
+        limit: u32,
+    ) -> impl Future<Output = Result<Leaderboard, ProgressionStoreError>> + Send;
 }

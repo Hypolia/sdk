@@ -471,6 +471,20 @@ pub struct GameStats {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeaderboardEntry {
+    pub rank: u32,
+    pub name: String,
+    pub wins: u32,
+    pub played: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Leaderboard {
+    pub game: GameKind,
+    pub entries: Vec<LeaderboardEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerProfile {
     pub uuid: Uuid,
     pub name: String,
