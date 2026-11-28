@@ -37,6 +37,7 @@ pub enum ServerKind {
     #[default]
     SheepWars,
     TowerWars,
+    DeACoudre,
 }
 
 impl ServerKind {
@@ -45,6 +46,7 @@ impl ServerKind {
             Self::Lobby => None,
             Self::SheepWars => Some(GameKind::SheepWars),
             Self::TowerWars => Some(GameKind::TowerWars),
+            Self::DeACoudre => Some(GameKind::DeACoudre),
         }
     }
 }
@@ -332,15 +334,17 @@ pub enum GameKind {
     #[default]
     SheepWars,
     TowerWars,
+    DeACoudre,
 }
 
 impl GameKind {
-    pub const ALL: [Self; 2] = [Self::SheepWars, Self::TowerWars];
+    pub const ALL: [Self; 3] = [Self::SheepWars, Self::TowerWars, Self::DeACoudre];
 
     pub const fn server_kind(self) -> ServerKind {
         match self {
             Self::SheepWars => ServerKind::SheepWars,
             Self::TowerWars => ServerKind::TowerWars,
+            Self::DeACoudre => ServerKind::DeACoudre,
         }
     }
 
@@ -348,6 +352,7 @@ impl GameKind {
         match self {
             Self::SheepWars => "sheepwars",
             Self::TowerWars => "towerwars",
+            Self::DeACoudre => "deacoudre",
         }
     }
 
@@ -712,6 +717,19 @@ mod tests {
         assert_eq!(ServerKind::Lobby.game(), None);
         assert_eq!(GameKind::from_slug("lobby"), None);
         assert_eq!(GameKind::default(), GameKind::SheepWars);
+    }
+
+    #[test]
+    fn deacoudre_uses_snake_case_on_the_wire_and_deacoudre_as_slug() {
+        assert_eq!(
+            serde_json::to_string(&GameKind::DeACoudre).unwrap(),
+            r#""de_a_coudre""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ServerKind::DeACoudre).unwrap(),
+            r#""de_a_coudre""#
+        );
+        assert_eq!(GameKind::DeACoudre.slug(), "deacoudre");
     }
 
     #[test]
