@@ -3,7 +3,7 @@ use std::future::{Future, ready};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::{CoinMovement, PlayerProgress, PlayerRecord};
-use hypolia_protocol::MatchReportAck;
+use hypolia_protocol::{GameKind, LeaderboardEntry, MatchReportAck};
 use uuid::Uuid;
 
 use crate::repository::{
@@ -123,6 +123,35 @@ impl ProgressionRepository for MemoryProgressionRepository {
             .map(|entry| entry.movement.clone())
             .collect();
         ready(Ok(movements))
+    }
+
+    fn top_wins(
+        &self,
+        game: GameKind,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<LeaderboardEntry>, ProgressionStoreError>> + Send {
+        let state = self.lock();
+        let mut ranked: Vec<(&str, u32, u32)> = state
+            .players
+            .values()
+            .filter_map(|player| {
+                let record = player.games.get(&game)?;
+                (record.wins > 0).then_some((player.name.as_str(), record.wins, record.played))
+            })
+            .collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)).then(a.0.cmp(b.0)));
+        let entries = ranked
+            .into_iter()
+            .take(limit as usize)
+            .zip(1..)
+            .map(|((name, wins, played), rank)| LeaderboardEntry {
+                rank,
+                name: name.to_owned(),
+                wins,
+                played,
+            })
+            .collect();
+        ready(Ok(entries))
     }
 }
 
@@ -277,6 +306,98 @@ mod tests {
         let ledger = block_on(repo.ledger(RED)).unwrap();
         let signed: Vec<i128> = ledger.iter().map(|m| m.delta.signed()).collect();
         assert_eq!(signed, vec![1, 2]);
+    }
+
+    fn win_record(
+        repo: &MemoryProgressionRepository,
+        uuid: Uuid,
+        name: &str,
+        game: GameKind,
+        wins: u32,
+        losses: u32,
+    ) {
+        let _ = block_on(repo.update(uuid, |p| {
+            p.set_identity(name, hypolia_protocol::PlayerRank::Member);
+            let id = Uuid::from_u128(1000);
+            for _ in 0..wins {
+                p.record_match(id, game, MatchOutcome::Win);
+            }
+            for _ in 0..losses {
+                p.record_match(id, game, MatchOutcome::Loss);
+            }
+            Ok::<_, ()>(((), Vec::new()))
+        }))
+        .unwrap();
+    }
+
+    fn names(entries: &[LeaderboardEntry]) -> Vec<&str> {
+        entries.iter().map(|e| e.name.as_str()).collect()
+    }
+
+    #[test]
+    fn top_wins_orders_by_wins_then_fewest_played_then_name() {
+        let repo = MemoryProgressionRepository::default();
+        let game = GameKind::SheepWars;
+        win_record(&repo, Uuid::from_u128(10), "Zoe", game, 5, 0);
+        win_record(&repo, Uuid::from_u128(11), "Bob", game, 5, 3);
+        win_record(&repo, Uuid::from_u128(12), "Alice", game, 5, 0);
+        win_record(&repo, Uuid::from_u128(13), "Max", game, 9, 9);
+        let top = block_on(repo.top_wins(game, 10)).unwrap();
+        assert_eq!(names(&top), ["Max", "Alice", "Zoe", "Bob"]);
+        let ranks: Vec<u32> = top.iter().map(|e| e.rank).collect();
+        assert_eq!(ranks, [1, 2, 3, 4]);
+        assert_eq!((top[1].wins, top[1].played), (5, 5));
+        assert_eq!((top[3].wins, top[3].played), (5, 8));
+    }
+
+    #[test]
+    fn top_wins_skips_players_without_a_win_and_other_games() {
+        let repo = MemoryProgressionRepository::default();
+        win_record(
+            &repo,
+            Uuid::from_u128(10),
+            "Loser",
+            GameKind::SheepWars,
+            0,
+            4,
+        );
+        win_record(
+            &repo,
+            Uuid::from_u128(11),
+            "Tower",
+            GameKind::TowerWars,
+            3,
+            0,
+        );
+        assert!(
+            block_on(repo.top_wins(GameKind::SheepWars, 10))
+                .unwrap()
+                .is_empty()
+        );
+        let tower = block_on(repo.top_wins(GameKind::TowerWars, 10)).unwrap();
+        assert_eq!(names(&tower), ["Tower"]);
+    }
+
+    #[test]
+    fn top_wins_honours_the_limit() {
+        let repo = MemoryProgressionRepository::default();
+        for i in 0..5u32 {
+            win_record(
+                &repo,
+                Uuid::from_u128(100 + u128::from(i)),
+                &format!("P{i}"),
+                GameKind::SheepWars,
+                i + 1,
+                0,
+            );
+        }
+        let top = block_on(repo.top_wins(GameKind::SheepWars, 3)).unwrap();
+        assert_eq!(names(&top), ["P4", "P3", "P2"]);
+        assert!(
+            block_on(repo.top_wins(GameKind::SheepWars, 0))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
