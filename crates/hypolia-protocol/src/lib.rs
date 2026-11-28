@@ -471,6 +471,20 @@ pub struct GameStats {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeaderboardEntry {
+    pub rank: u32,
+    pub name: String,
+    pub wins: u32,
+    pub played: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Leaderboard {
+    pub game: GameKind,
+    pub entries: Vec<LeaderboardEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerProfile {
     pub uuid: Uuid,
     pub name: String,
@@ -670,6 +684,23 @@ mod tests {
         let json = r#"{"player_uuid":"00000000-0000-0000-0000-000000000000","player_name":"Alex"}"#;
         let join: JoinQueueRequest = serde_json::from_str(json).unwrap();
         assert_eq!(join.match_size, 0);
+    }
+
+    #[test]
+    fn leaderboard_round_trips_with_a_snake_case_game() {
+        let board = Leaderboard {
+            game: GameKind::TowerWars,
+            entries: vec![LeaderboardEntry {
+                rank: 1,
+                name: "Alex".into(),
+                wins: 42,
+                played: 50,
+            }],
+        };
+        let json = serde_json::to_string(&board).unwrap();
+        assert!(json.contains("\"game\":\"tower_wars\""), "{json}");
+        assert!(json.contains("\"rank\":1"), "{json}");
+        assert_eq!(serde_json::from_str::<Leaderboard>(&json).unwrap(), board);
     }
 
     #[test]
